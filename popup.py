@@ -19,7 +19,7 @@ CHROMA = "#FF00FF"
 WARN_AUTOCLOSE_MS = 30_000
 MARGIN = 24
 MAIN_SIZE = (380, 200)
-WARN_SIZE = (320, 96)
+WARN_SIZE = MAIN_SIZE  # 提前提醒也走大卡片，只是不放按钮
 
 
 def _enable_dpi_awareness() -> None:
@@ -210,14 +210,15 @@ def _build_main(root, canvas, scale, w, h, clock_text):
 
 
 def _build_warn(root, canvas, scale, w, h, clock_text):
-    pad = int(20 * scale)
+    pad = int(24 * scale)
     canvas.create_text(
-        pad, int(18 * scale), text="还有 10 分钟下班", anchor="nw",
-        fill=TEXT_FG, font=("Microsoft YaHei UI", -int(14 * scale)),
+        pad, pad, text=clock_text, anchor="nw",
+        fill=ACCENT, font=("Microsoft YaHei UI", -int(44 * scale)),
     )
     canvas.create_text(
-        pad, int(52 * scale), text=f"打卡时间 {clock_text}", anchor="nw",
-        fill=TEXT_MUTED, font=("Microsoft YaHei UI", -int(11 * scale)),
+        pad + int(2 * scale), int(76 * scale),
+        text="还有 10 分钟下班", anchor="nw",
+        fill=TEXT_MUTED, font=("Microsoft YaHei UI", -int(12 * scale)),
     )
 
     def close(_event=None):

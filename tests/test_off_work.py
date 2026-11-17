@@ -94,15 +94,19 @@ class QueryTaskNamesTest(unittest.TestCase):
         with mock.patch.object(off_work, "_load_task_names", return_value=[]), \
                 mock.patch.object(off_work, "_query_task_names", return_value=stale), \
                 mock.patch.object(off_work, "_delete_tasks") as delete, \
-                mock.patch.object(off_work, "_create_task", return_value=True), \
+                mock.patch.object(off_work, "_create_task", return_value=True) as create, \
                 mock.patch.object(off_work, "_save_task_names"), \
                 mock.patch("off_work.datetime") as dt:
             dt.now.return_value = datetime(2026, 11, 17, 9, 0)
             with contextlib.redirect_stdout(io.StringIO()):
-                off_work.schedule_notification(datetime(2026, 11, 17, 18, 30))
+                off_work.schedule_notification(datetime(2026, 11, 17, 18, 30, 37))
 
         delete.assert_called_once()
         self.assertEqual(sorted(delete.call_args[0][0]), stale)
+        commands = [call.args[2] for call in create.call_args_list]
+        self.assertEqual(len(commands), 2)
+        for cmd in commands:
+            self.assertTrue(cmd.endswith("--clock 18:30:37"), cmd)
 
 
 class FireArgsTest(unittest.TestCase):

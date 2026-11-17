@@ -8,8 +8,8 @@ import popup
 
 
 class PopupContractTest(unittest.TestCase):
-    def test_warn_card_is_shorter(self):
-        self.assertLess(popup.WARN_SIZE[1], popup.MAIN_SIZE[1])
+    def test_warn_uses_main_card_size(self):
+        self.assertEqual(popup.WARN_SIZE, popup.MAIN_SIZE)
 
     def test_warn_autoclose_is_thirty_seconds(self):
         self.assertEqual(popup.WARN_AUTOCLOSE_MS, 30_000)

@@ -302,7 +302,7 @@ def schedule_notification(clock_out: datetime) -> bool:
 
     if warn_time:
         warn_task_name = f"OffWorkReminder_Warn_{warn_time.strftime('%H%M')}"
-        if _create_task(warn_task_name, warn_time, _task_command("warn", clock_out.strftime("%H:%M"))):
+        if _create_task(warn_task_name, warn_time, _task_command("warn", clock_out.strftime("%H:%M:%S"))):
             names.append(warn_task_name)
             remaining = warn_time - now
             h, remainder = divmod(int(remaining.total_seconds()), 3600)
@@ -314,7 +314,7 @@ def schedule_notification(clock_out: datetime) -> bool:
         print("⚠️  提前 10 分钟提醒时间已过，跳过。")
 
     main_task_name = f"OffWorkReminder_{main_time.strftime('%H%M')}"
-    if _create_task(main_task_name, main_time, _task_command("main", clock_out.strftime("%H:%M"))):
+    if _create_task(main_task_name, main_time, _task_command("main", clock_out.strftime("%H:%M:%S"))):
         names.append(main_task_name)
         remaining = main_time - now
         h, remainder = divmod(int(remaining.total_seconds()), 3600)
