@@ -247,6 +247,66 @@ def schedule_notification(clock_out: datetime) -> bool:
     return ok
 
 
+def parse_fire_args(argv: list[str]) -> tuple[str, str]:
+    args = list(argv)
+    kind = "warn" if "warn" in args else "main"
+    clock_text = ""
+    if "--clock" in args:
+        i = args.index("--clock")
+        if i + 1 < len(args):
+            clock_text = args[i + 1]
+    return kind, clock_text
+
+
+def _balloon_ps(title: str, body: str) -> str:
+    return (
+        "Add-Type -AssemblyName System.Windows.Forms; "
+        "Add-Type -AssemblyName System.Drawing; "
+        "$b = New-Object System.Windows.Forms.NotifyIcon; "
+        "$b.Icon = [System.Drawing.SystemIcons]::Information; "
+        "$b.BalloonTipIcon = 'Info'; "
+        f'$b.BalloonTipTitle = "{title}"; '
+        f'$b.BalloonTipText = "{body}"; '
+        "$b.Visible = $true; "
+        "$b.ShowBalloonTip(0); "
+        "Start-Sleep -Seconds 10; "
+        "$b.Dispose()"
+    )
+
+
+def _show_balloon_now(title: str, body: str) -> None:
+    subprocess.Popen(
+        [
+            "powershell", "-WindowStyle", "Hidden",
+            "-ExecutionPolicy", "Bypass", "-Command", _balloon_ps(title, body),
+        ],
+        creationflags=0x08000000 if sys.platform == "win32" else 0,
+    )
+
+
+def _fire(kind: str, clock_text: str) -> None:
+    try:
+        import popup
+
+        result = popup.run_popup(kind, clock_text)
+    except Exception as e:
+        _log(f"popup failed: {e!r}")
+        _show_balloon_now(
+            "下班提醒",
+            "还有 10 分钟下班" if kind == "warn" else "到下班时间啦！辛苦一天，该走了！",
+        )
+        result = "ack"
+
+    if result == "snooze":
+        when = ceil_minute(datetime.now() + timedelta(minutes=10))
+        name = f"OffWorkReminder_Snooze_{when.strftime('%H%M')}"
+        if _create_task(name, when, _task_command("main", clock_text)):
+            _save_task_names(_load_task_names() + [name])
+            _log(f"snooze scheduled at {when:%H:%M}")
+        else:
+            _log("snooze schedule failed")
+
+
 def live_countdown(
     clock_out: datetime,
     pixel: str = PIXEL_NARROW,
@@ -308,6 +368,11 @@ def main():
             sys.stdout.reconfigure(encoding="utf-8", errors="replace")
         except Exception:
             pass
+
+    if "--fire" in sys.argv:
+        kind, clock_text = parse_fire_args(sys.argv)
+        _fire(kind, clock_text)
+        return
 
     # ── 解析参数 ──
     no_notify = "--no-notify" in sys.argv or "-n" in sys.argv

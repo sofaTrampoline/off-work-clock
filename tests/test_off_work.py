@@ -67,3 +67,21 @@ class StateFileTest(unittest.TestCase):
 
         with tempfile.TemporaryDirectory() as d:
             self.assertEqual(off_work._load_task_names(Path(d) / "nope.json"), [])
+
+
+class FireArgsTest(unittest.TestCase):
+    def test_parse_kind_and_clock(self):
+        kind, clock = off_work.parse_fire_args(
+            ["--fire", "main", "--clock", "18:30"]
+        )
+        self.assertEqual(kind, "main")
+        self.assertEqual(clock, "18:30")
+
+    def test_warn_kind(self):
+        kind, _ = off_work.parse_fire_args(["--fire", "warn", "--clock", "18:20"])
+        self.assertEqual(kind, "warn")
+
+    def test_defaults(self):
+        kind, clock = off_work.parse_fire_args(["--fire"])
+        self.assertEqual(kind, "main")
+        self.assertEqual(clock, "")
