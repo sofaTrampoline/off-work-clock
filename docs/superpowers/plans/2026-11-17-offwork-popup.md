@@ -25,7 +25,7 @@
 
 **Files:**
 - Modify: `off_work.py`（在 `parse_time()` 之后新增两个函数；重写 `schedule_notification()` 的时间计算部分）
-- Test: `tests/test_off_work.py`（新建）
+- Test: `tests/__init__.py`（新建，空文件）、`tests/test_off_work.py`（新建）
 
 **Interfaces:**
 - Produces:
@@ -35,7 +35,7 @@
 
 - [ ] **Step 1: 写失败的测试**
 
-创建 `tests/test_off_work.py`：
+创建空文件 `tests/__init__.py`，再创建 `tests/test_off_work.py`：
 
 ```python
 import sys
@@ -83,7 +83,7 @@ class ReminderTimesTest(unittest.TestCase):
 
 - [ ] **Step 2: 运行测试确认失败**
 
-Run: `python -m unittest discover -s tests -v`
+Run: `python -m unittest tests.test_off_work -v`
 
 Expected: FAIL，`AttributeError: module 'off_work' has no attribute 'ceil_minute'`
 
@@ -145,14 +145,14 @@ def schedule_notification(clock_out: datetime) -> bool:
 
 - [ ] **Step 4: 运行测试确认通过**
 
-Run: `python -m unittest discover -s tests -v`
+Run: `python -m unittest tests.test_off_work -v`
 
 Expected: 5 个测试全部 `ok`
 
 - [ ] **Step 5: 提交**
 
 ```bash
-git add off_work.py tests/test_off_work.py
+git add off_work.py tests/__init__.py tests/test_off_work.py
 git commit -m "refactor: extract minute rounding and 10-minute warning time"
 ```
 
