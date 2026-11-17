@@ -1,4 +1,4 @@
-"""下班时间计算器 — 打卡时间 + 8h45m = 下班时间，超大字体显示 + 下班提醒通知"""
+"""下班时间计算器 — 打卡时间 + 8h45m = 下班时间，大字体显示 + 下班提醒通知"""
 
 import sys
 import subprocess
@@ -6,8 +6,11 @@ import tempfile
 from datetime import datetime, timedelta
 from pathlib import Path
 
-# ── 超大数字字体（7行高 × 5列宽，每像素 = ██）──
-# 每个数字 5 列 × 7 行，1=亮 0=灭，二进制 5-bit 表示
+# ── 数字字体 ──
+# FONT_COMPACT: 4列 × 5行（默认，上下半格压缩后 3 行）
+# FONT:         5列 × 7行（--mid / --big，压缩后 4 行）
+PIXEL_NARROW = "█"
+PIXEL_WIDE = "██"
 FONT = {
     "0": [0b01110, 0b10001, 0b10001, 0b10001, 0b10001, 0b10001, 0b01110],
     "1": [0b00100, 0b01100, 0b00100, 0b00100, 0b00100, 0b00100, 0b01110],
@@ -20,39 +23,84 @@ FONT = {
     "8": [0b01110, 0b10001, 0b10001, 0b01110, 0b10001, 0b10001, 0b01110],
     "9": [0b01110, 0b10001, 0b10001, 0b01111, 0b00001, 0b10001, 0b01110],
 }
+FONT_COMPACT = {
+    "0": [0b0110, 0b1001, 0b1001, 0b1001, 0b0110],
+    "1": [0b0010, 0b0110, 0b0010, 0b0010, 0b0111],
+    "2": [0b0110, 0b1001, 0b0010, 0b0100, 0b1111],
+    "3": [0b1111, 0b0001, 0b0111, 0b0001, 0b1111],
+    "4": [0b0010, 0b0110, 0b1010, 0b1111, 0b0010],
+    "5": [0b1111, 0b1000, 0b1110, 0b0001, 0b1110],
+    "6": [0b0110, 0b1000, 0b1110, 0b1001, 0b0110],
+    "7": [0b1111, 0b0001, 0b0010, 0b0100, 0b0100],
+    "8": [0b0110, 0b1001, 0b0110, 0b1001, 0b0110],
+    "9": [0b0110, 0b1001, 0b0111, 0b0001, 0b0110],
+}
 
 
-def glyph_rows(ch: str) -> list[str]:
-    """返回一个字符的 7 行渲染结果，每行统一 10 字符宽"""
+def glyph_bits(ch: str, compact: bool = True) -> list[list[bool]]:
+    """返回一个字符的点阵（compact: 5 行 × 4 列；否则 7 行 × 5 列）"""
+    font, rows_n, cols_n = (
+        (FONT_COMPACT, 5, 4) if compact else (FONT, 7, 5)
+    )
     if ch == ":":
-        return [
-            "          ",  # 10 spaces
-            "    ██    ",
-            "          ",
-            "          ",
-            "          ",
-            "    ██    ",
-            "          ",
-        ]
-    pattern = FONT.get(ch)
+        rows = [[False] * cols_n for _ in range(rows_n)]
+        rows[1][cols_n // 2] = True
+        rows[rows_n - 2][cols_n // 2] = True
+        return rows
+    pattern = font.get(ch)
     if pattern is None:
-        return ["          "] * 7
-    rows = []
-    for row_bits in pattern:
-        line = ""
-        for col in range(5):
-            bit = (row_bits >> (4 - col)) & 1
-            line += "██" if bit else "  "
-        rows.append(line)
-    return rows
+        return [[False] * cols_n for _ in range(rows_n)]
+    return [
+        [bool((row_bits >> (cols_n - 1 - col)) & 1) for col in range(cols_n)]
+        for row_bits in pattern
+    ]
 
 
-def render_big(text: str) -> str:
-    """把时间字符串渲染成 7 行高的超大 ASCII 数字"""
-    all_glyphs = [glyph_rows(ch) for ch in text]
+def render_big(
+    text: str,
+    pixel: str = PIXEL_NARROW,
+    compress: bool = True,
+    compact: bool = True,
+) -> str:
+    """把时间字符串渲染成大数字；compress 时用上下半格把两行压成一行"""
+    glyphs = [glyph_bits(ch, compact) for ch in text]
+    rows_n = 5 if compact else 7
+    width = len(pixel)
+    gap = 1 if width > 1 else 2  # 字符间距，宽像素时用 1 格保持总宽不变
+    grid = []
+    for i in range(rows_n):
+        row: list[bool] = []
+        for gi, g in enumerate(glyphs):
+            if gi:
+                row.extend([False] * gap)
+            row.extend(g[i])
+        grid.append(row)
+
+    if compress:
+        blank = [False] * len(grid[0])
+        lines = []
+        for i in range(0, rows_n, 2):
+            top = grid[i]
+            bottom = grid[i + 1] if i + 1 < rows_n else blank
+            line = []
+            for a, b in zip(top, bottom):
+                if a and b:
+                    line.append("█" * width)
+                elif a:
+                    line.append("▀" * width)
+                elif b:
+                    line.append("▄" * width)
+                else:
+                    line.append(" " * width)
+            lines.append("".join(line))
+        return "\n".join(lines)
+
     lines = []
-    for i in range(7):
-        lines.append("  ".join(g[i] for g in all_glyphs))
+    for row in grid:
+        line = ""
+        for bit in row:
+            line += pixel if bit else " " * width
+        lines.append(line)
     return "\n".join(lines)
 
 
@@ -161,7 +209,12 @@ def schedule_notification(clock_out: datetime) -> bool:
     return ok
 
 
-def live_countdown(clock_out: datetime):
+def live_countdown(
+    clock_out: datetime,
+    pixel: str = PIXEL_NARROW,
+    compress: bool = True,
+    compact: bool = True,
+):
     """全屏倒计时，大数字每秒刷新，Ctrl+C 退出。"""
     import time
 
@@ -180,7 +233,7 @@ def live_countdown(clock_out: datetime):
                 sys.stdout.write("\033[2J\033[H")
                 sys.stdout.flush()
                 print()
-                print(render_big("000000"))
+                print(render_big("00:00:00", pixel, compress, compact))
                 print()
                 print("===== 下班时间到！！！=====")
                 print()
@@ -199,7 +252,7 @@ def live_countdown(clock_out: datetime):
             print(f"下班打卡: {clock_out.strftime('%H:%M:%S')}")
             print(f"距下班还有 {h}h{m:02d}m{s:02d}s")
             print()
-            print(render_big(countdown_str))
+            print(render_big(countdown_str, pixel, compress, compact))
             print()
             print("按 Ctrl+C 退出")
             sys.stdout.flush()
@@ -221,6 +274,12 @@ def main():
     # ── 解析参数 ──
     no_notify = "--no-notify" in sys.argv or "-n" in sys.argv
     watch_mode = "--watch" in sys.argv or "-w" in sys.argv
+    mid_mode = "--mid" in sys.argv or "-m" in sys.argv
+    big_mode = "--big" in sys.argv or "-b" in sys.argv
+    tall_mode = "--tall" in sys.argv or "-t" in sys.argv
+    compact = not (mid_mode or big_mode)
+    pixel = PIXEL_WIDE if big_mode else PIXEL_NARROW
+    compress = not tall_mode
     args = [a for a in sys.argv[1:] if not a.startswith("-")]
 
     if args:
@@ -254,7 +313,7 @@ def main():
     print(f"上班打卡: {in_str}")
     print(f"下班打卡: {out_str}  ← {remain_text}")
     print()
-    print(render_big(out_str))
+    print(render_big(out_str, pixel, compress, compact))
     print()
 
     # ── 设置通知 ──
@@ -267,7 +326,7 @@ def main():
     if watch_mode:
         print()
         input("按 Enter 开始倒计时...")
-        live_countdown(clock_out)
+        live_countdown(clock_out, pixel, compress, compact)
 
 
 if __name__ == "__main__":
