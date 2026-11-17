@@ -124,6 +124,22 @@ def parse_time(s: str) -> datetime:
         sys.exit(1)
 
 
+def ceil_minute(dt: datetime) -> datetime:
+    """schtasks 只支持分钟精度，把带秒的时间向上取整到下一分钟。"""
+    if dt.second or dt.microsecond:
+        dt = dt.replace(second=0, microsecond=0) + timedelta(minutes=1)
+    return dt.replace(second=0, microsecond=0)
+
+
+def reminder_times(
+    clock_out: datetime, now: datetime
+) -> tuple[datetime | None, datetime]:
+    """返回 (提前提醒时间或 None, 下班提醒时间)。提前提醒 = 下班前 10 分钟。"""
+    main_time = ceil_minute(clock_out)
+    warn_time = main_time - timedelta(minutes=10)
+    return (warn_time if warn_time > now else None), main_time
+
+
 def _create_task(task_name: str, trigger_time: datetime, title: str, body: str) -> bool:
     """创建单次计划任务，触发时弹气泡通知。"""
 
@@ -157,16 +173,9 @@ def _create_task(task_name: str, trigger_time: datetime, title: str, body: str) 
 
 
 def schedule_notification(clock_out: datetime) -> bool:
-    """创建两个 Windows 计划任务：下班前 5 分钟提醒 + 下班提醒。"""
+    """创建两个 Windows 计划任务：下班前 10 分钟提醒 + 下班提醒。"""
     now = datetime.now()
-
-    # schtasks 只支持分钟精度，秒数向上取整
-    if clock_out.second > 0 or clock_out.microsecond > 0:
-        main_time = clock_out.replace(second=0, microsecond=0) + timedelta(minutes=1)
-    else:
-        main_time = clock_out
-
-    warn_time = main_time - timedelta(minutes=5)
+    warn_time, main_time = reminder_times(clock_out, now)
 
     if main_time <= now:
         print("⚠️  下班时间已过，不设置提醒。")
@@ -174,22 +183,22 @@ def schedule_notification(clock_out: datetime) -> bool:
 
     ok = True
 
-    # ── 提前 5 分钟提醒 ──
-    if warn_time > now:
+    # ── 提前 10 分钟提醒 ──
+    if warn_time:
         warn_task_name = f"OffWorkReminder_Warn_{warn_time.strftime('%H%M')}"
         warn_body = (
-            f"还有 5 分钟下班！收拾东西准备走啦～`r`n`r`n"
+            f"还有 10 分钟下班！收拾东西准备走啦～`r`n`r`n"
             f"下班打卡: {clock_out.strftime('%H:%M')}"
         )
         if _create_task(warn_task_name, warn_time, "下班提醒", warn_body):
             remaining = warn_time - now
             h, remainder = divmod(int(remaining.total_seconds()), 3600)
             m, _ = divmod(remainder, 60)
-            print(f"⏰ 已设置提前提醒 — {h} 小时 {m} 分钟后")
+            print(f"⏰ 已设置提前 10 分钟提醒 — {h} 小时 {m} 分钟后")
         else:
             ok = False
     else:
-        print("⚠️  提前 5 分钟提醒时间已过，跳过。")
+        print("⚠️  提前 10 分钟提醒时间已过，跳过。")
 
     # ── 下班准时提醒 ──
     main_task_name = f"OffWorkReminder_{main_time.strftime('%H%M')}"
