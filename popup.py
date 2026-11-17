@@ -75,6 +75,22 @@ def _apply_no_activate(root) -> None:
     user32.SetWindowLongW(hwnd, GWL_EXSTYLE, style | WS_EX_NOACTIVATE | WS_EX_TOOLWINDOW)
 
 
+def _foreground_hwnd():
+    if sys.platform != "win32":
+        return None
+    import ctypes
+
+    return ctypes.windll.user32.GetForegroundWindow()
+
+
+def _restore_foreground(hwnd) -> None:
+    if not hwnd or sys.platform != "win32":
+        return
+    import ctypes
+
+    ctypes.windll.user32.SetForegroundWindow(ctypes.c_void_p(hwnd))
+
+
 def _round_rect(canvas, x1, y1, x2, y2, radius, **kwargs):
     pts = [
         x1 + radius, y1,
@@ -123,6 +139,8 @@ class _Button:
 
 
 def _make_window(kind: str):
+    previous = _foreground_hwnd()
+
     import tkinter as tk
 
     root = tk.Tk()
@@ -151,6 +169,8 @@ def _make_window(kind: str):
     _apply_no_activate(root)
     root.deiconify()
     root.lift()
+    root.update()
+    _restore_foreground(previous)
     return root, canvas, scale, w, h
 
 
