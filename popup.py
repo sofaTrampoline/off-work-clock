@@ -176,6 +176,15 @@ def _make_window(kind: str):
     return root, canvas, scale, w, h
 
 
+def _finish(root, result: str) -> None:
+    """记录结果并延后销毁窗口 —— 在 Tk 事件回调里同步 destroy 会崩。"""
+    if getattr(root, "_closing", False):
+        return
+    root._closing = True
+    root.result = result
+    root.after_idle(root.destroy)
+
+
 def _build_main(root, canvas, scale, w, h, clock_text):
     pad = int(24 * scale)
     canvas.create_text(
@@ -189,12 +198,10 @@ def _build_main(root, canvas, scale, w, h, clock_text):
     )
 
     def ack():
-        root.result = "ack"
-        root.destroy()
+        _finish(root, "ack")
 
     def snooze():
-        root.result = "snooze"
-        root.destroy()
+        _finish(root, "snooze")
 
     _Button(canvas, pad, int(136 * scale), int(104 * scale), int(38 * scale),
             "知道了", ack, primary=True, scale=scale)
@@ -214,8 +221,7 @@ def _build_warn(root, canvas, scale, w, h, clock_text):
     )
 
     def close(_event=None):
-        root.result = "ack"
-        root.destroy()
+        _finish(root, "ack")
 
     canvas.bind("<Button-1>", close)
     root.after(WARN_AUTOCLOSE_MS, close)

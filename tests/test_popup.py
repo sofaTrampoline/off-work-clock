@@ -17,3 +17,32 @@ class PopupContractTest(unittest.TestCase):
     def test_accent_colors_defined(self):
         self.assertTrue(popup.ACCENT.startswith("#"))
         self.assertTrue(popup.CARD_BG.startswith("#"))
+
+
+class FinishTest(unittest.TestCase):
+    class FakeRoot:
+        def __init__(self):
+            self.after_calls = []
+            self.destroyed = False
+
+        def after_idle(self, fn):
+            self.after_calls.append(fn)
+
+        def destroy(self):
+            self.destroyed = True
+
+    def test_finish_defers_destroy_and_sets_result(self):
+        root = self.FakeRoot()
+        popup._finish(root, "snooze")
+        self.assertEqual(root.result, "snooze")
+        self.assertFalse(root.destroyed)
+        self.assertEqual(len(root.after_calls), 1)
+        root.after_calls[0]()
+        self.assertTrue(root.destroyed)
+
+    def test_finish_is_idempotent(self):
+        root = self.FakeRoot()
+        popup._finish(root, "ack")
+        popup._finish(root, "snooze")
+        self.assertEqual(root.result, "ack")
+        self.assertEqual(len(root.after_calls), 1)
