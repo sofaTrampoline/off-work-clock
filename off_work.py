@@ -2,6 +2,7 @@
 
 import csv
 import json
+import re
 import sys
 import subprocess
 import tempfile
@@ -209,25 +210,31 @@ def _delete_tasks(names: list[str]) -> None:
         )
 
 
-def _parse_task_names(csv_text: str) -> list[str]:
-    """从 schtasks /query /fo csv 的输出里挑出本程序创建的任务名。"""
-    names: list[str] = []
+def _parse_task_rows(csv_text: str) -> list[tuple[str, str]]:
+    """从 schtasks /query /fo csv 的输出里挑出本程序的任务名和下次运行时间。"""
+    rows: list[tuple[str, str]] = []
     for line in csv_text.splitlines():
         line = line.strip()
         if not line:
             continue
         try:
-            field = next(csv.reader([line]))[0]
+            fields = next(csv.reader([line]))
         except (StopIteration, csv.Error):
             continue
-        name = field.lstrip("\\")
+        if len(fields) < 2:
+            continue
+        name = fields[0].lstrip("\\")
         if name.startswith(TASK_PREFIX):
-            names.append(name)
-    return names
+            rows.append((name, fields[1].strip()))
+    return rows
 
 
-def _query_task_names() -> list[str]:
-    """列出当前所有本程序创建的计划任务，防止历史残留越积越多。"""
+def _parse_task_names(csv_text: str) -> list[str]:
+    """从 schtasks /query /fo csv 的输出里挑出本程序创建的任务名。"""
+    return [name for name, _ in _parse_task_rows(csv_text)]
+
+
+def _run_task_query() -> list[tuple[str, str]]:
     if sys.platform != "win32":
         return []
     try:
@@ -244,7 +251,39 @@ def _query_task_names() -> list[str]:
     if result.returncode != 0:
         _log(f"schtasks query failed: {result.returncode}")
         return []
-    return _parse_task_names(result.stdout)
+    return _parse_task_rows(result.stdout)
+
+
+def _query_task_names() -> list[str]:
+    """列出当前所有本程序创建的计划任务，防止历史残留越积越多。"""
+    return [name for name, _ in _run_task_query()]
+
+
+def _query_task_command(task_name: str) -> str:
+    try:
+        result = subprocess.run(
+            ["schtasks", "/query", "/tn", task_name, "/fo", "list", "/v"],
+            capture_output=True,
+            text=True,
+            encoding="gbk",
+            errors="replace",
+        )
+    except OSError:
+        return ""
+    return result.stdout if result.returncode == 0 else ""
+
+
+def _scheduled_clock_text() -> str | None:
+    """还有没触发的排程时，返回它记录的下班时间，用于跳过重复输入。"""
+    for name, next_run in _run_task_query():
+        if not next_run or next_run.upper() == "N/A":
+            continue
+        match = re.search(
+            r"--clock\s+(\d{1,2}:\d{2}(?::\d{2})?)", _query_task_command(name)
+        )
+        if match:
+            return match.group(1)
+    return None
 
 
 def _short_date(dt: datetime) -> str:
@@ -523,11 +562,19 @@ def main():
 
     if args:
         raw = args[0]
+        clock_in = parse_time(raw)
     else:
-        print("输入打卡时间：")
-        raw = input("> ").strip()
-
-    clock_in = parse_time(raw)
+        saved = _parse_clock_text(_scheduled_clock_text() or "")
+        if saved is not None:
+            h, m, s = saved
+            clock_in = datetime.now().replace(
+                hour=h, minute=m, second=s, microsecond=0
+            ) - timedelta(hours=8, minutes=45)
+            print(f"沿用已有排程：{h:02d}:{m:02d}:{s:02d} 下班（无需重新输入打卡时间）")
+        else:
+            print("输入打卡时间：")
+            raw = input("> ").strip()
+            clock_in = parse_time(raw)
     now = datetime.now()
     today = now.replace(hour=0, minute=0, second=0, microsecond=0)
     clock_in = today + timedelta(

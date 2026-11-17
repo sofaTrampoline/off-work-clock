@@ -116,6 +116,39 @@ class QueryTaskNamesTest(unittest.TestCase):
             self.assertTrue(cmd.endswith("--clock 18:30:37"), cmd)
 
 
+class ScheduledClockTest(unittest.TestCase):
+    def test_parse_rows_keeps_next_run(self):
+        sample = '"\\OffWorkReminder_1751","2026/11/17 17:51:00","就绪"\r\n'
+        self.assertEqual(
+            off_work._parse_task_rows(sample),
+            [("OffWorkReminder_1751", "2026/11/17 17:51:00")],
+        )
+
+    def test_uses_clock_from_upcoming_task(self):
+        from unittest import mock
+
+        rows = [
+            ("OffWorkReminder_Warn_1741", "N/A"),
+            ("OffWorkReminder_1751", "2026/11/17 17:51:00"),
+        ]
+        with mock.patch.object(off_work, "_run_task_query", return_value=rows), \
+                mock.patch.object(
+                    off_work, "_query_task_command",
+                    return_value='要运行的任务: "...off_work.py" --fire main --clock 17:51:21',
+                ) as cmd:
+            self.assertEqual(off_work._scheduled_clock_text(), "17:51:21")
+        cmd.assert_called_once_with("OffWorkReminder_1751")
+
+    def test_fired_tasks_are_ignored(self):
+        from unittest import mock
+
+        with mock.patch.object(
+            off_work, "_run_task_query",
+            return_value=[("OffWorkReminder_1751", "N/A")],
+        ):
+            self.assertIsNone(off_work._scheduled_clock_text())
+
+
 class PopupTargetTest(unittest.TestCase):
     def test_main_target_is_clock_time(self):
         now = datetime(2026, 11, 17, 9, 0)
