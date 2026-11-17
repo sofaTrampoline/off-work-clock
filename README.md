@@ -29,3 +29,11 @@ python off_work.py 0845 --no-notify
 ## 依赖
 
 仅 Python 标准库（含 `tkinter`），无需安装第三方包。Windows 10/11 系统即可。
+
+## 排查
+
+提醒没出现时看 `%TEMP%\off_work.log`。单独预览卡片：
+
+```bash
+python popup.py --kind main --clock 18:30
+```

@@ -167,9 +167,14 @@ def _task_command(kind: str, clock_text: str) -> str:
 def _load_task_names(state_path: Path = STATE_PATH) -> list[str]:
     try:
         data = json.loads(state_path.read_text(encoding="utf-8"))
-        return [str(x) for x in data.get("tasks", [])]
     except (OSError, ValueError):
         return []
+    if not isinstance(data, dict):
+        return []
+    tasks = data.get("tasks")
+    if not isinstance(tasks, list):
+        return []
+    return [str(x) for x in tasks]
 
 
 def _save_task_names(names: list[str], state_path: Path = STATE_PATH) -> None:
@@ -191,6 +196,38 @@ def _delete_tasks(names: list[str]) -> None:
         )
 
 
+def _short_date(dt: datetime) -> str:
+    """按系统区域设置返回短日期，供 schtasks /sd 使用。"""
+    if sys.platform != "win32":
+        return dt.strftime("%Y-%m-%d")
+    import ctypes
+
+    class SYSTEMTIME(ctypes.Structure):
+        _fields_ = [
+            ("wYear", ctypes.c_ushort),
+            ("wMonth", ctypes.c_ushort),
+            ("wDayOfWeek", ctypes.c_ushort),
+            ("wDay", ctypes.c_ushort),
+            ("wHour", ctypes.c_ushort),
+            ("wMinute", ctypes.c_ushort),
+            ("wSecond", ctypes.c_ushort),
+            ("wMilliseconds", ctypes.c_ushort),
+        ]
+
+    st = SYSTEMTIME(dt.year, dt.month, 0, dt.day, 0, 0, 0, 0)
+    buf = ctypes.create_unicode_buffer(128)
+    kernel32 = ctypes.windll.kernel32
+    kernel32.GetDateFormatW.restype = ctypes.c_int
+    kernel32.GetDateFormatW.argtypes = [
+        ctypes.c_ulong, ctypes.c_ulong, ctypes.c_void_p,
+        ctypes.c_void_p, ctypes.c_wchar_p, ctypes.c_int,
+    ]
+    got = kernel32.GetDateFormatW(
+        0x0400, 0x00000001, ctypes.byref(st), None, buf, len(buf)
+    )
+    return buf.value if got else dt.strftime("%Y-%m-%d")
+
+
 def _create_task(task_name: str, trigger_time: datetime, command: str) -> bool:
     cmd = [
         "schtasks", "/create", "/f",
@@ -198,6 +235,7 @@ def _create_task(task_name: str, trigger_time: datetime, command: str) -> bool:
         "/tn", task_name,
         "/tr", command,
         "/st", trigger_time.strftime("%H:%M"),
+        "/sd", _short_date(trigger_time),
         "/it",
     ]
     result = subprocess.run(cmd, capture_output=True, text=True)
@@ -275,13 +313,16 @@ def _balloon_ps(title: str, body: str) -> str:
 
 
 def _show_balloon_now(title: str, body: str) -> None:
-    subprocess.Popen(
-        [
-            "powershell", "-WindowStyle", "Hidden",
-            "-ExecutionPolicy", "Bypass", "-Command", _balloon_ps(title, body),
-        ],
-        creationflags=0x08000000 if sys.platform == "win32" else 0,
-    )
+    try:
+        subprocess.Popen(
+            [
+                "powershell", "-WindowStyle", "Hidden",
+                "-ExecutionPolicy", "Bypass", "-Command", _balloon_ps(title, body),
+            ],
+            creationflags=0x08000000 if sys.platform == "win32" else 0,
+        )
+    except Exception as e:
+        _log(f"balloon failed: {e!r}")
 
 
 def _fire(kind: str, clock_text: str) -> None:

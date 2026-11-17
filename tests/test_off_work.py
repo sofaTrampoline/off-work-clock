@@ -85,3 +85,58 @@ class FireArgsTest(unittest.TestCase):
         kind, clock = off_work.parse_fire_args(["--fire"])
         self.assertEqual(kind, "main")
         self.assertEqual(clock, "")
+
+
+class CreateTaskArgvTest(unittest.TestCase):
+    def test_argv_has_sd_date_st_time_and_it(self):
+        from unittest import mock
+
+        with mock.patch("off_work.subprocess.run") as run:
+            run.return_value.returncode = 0
+            run.return_value.stdout = ""
+            run.return_value.stderr = ""
+            ok = off_work._create_task(
+                "OffWorkReminder_Test", datetime(2026, 11, 18, 7, 45), "cmd"
+            )
+        self.assertTrue(ok)
+        argv = run.call_args[0][0]
+        self.assertEqual(argv[argv.index("/tn") + 1], "OffWorkReminder_Test")
+        self.assertEqual(argv[argv.index("/st") + 1], "07:45")
+        self.assertIn("/it", argv)
+        self.assertTrue(argv[argv.index("/sd") + 1])
+        self.assertIn("2026", argv[argv.index("/sd") + 1])
+
+    def test_failure_returns_false(self):
+        from unittest import mock
+
+        with mock.patch("off_work.subprocess.run") as run:
+            run.return_value.returncode = 1
+            run.return_value.stdout = ""
+            run.return_value.stderr = "boom"
+            self.assertFalse(
+                off_work._create_task(
+                    "X", datetime(2026, 11, 18, 7, 45), "cmd"
+                )
+            )
+
+
+class FireSnoozeTest(unittest.TestCase):
+    def test_snooze_schedules_task_with_original_clock(self):
+        import types
+        from unittest import mock
+
+        fake_popup = types.SimpleNamespace(
+            run_popup=lambda kind, clock: "snooze"
+        )
+        with mock.patch.dict(sys.modules, {"popup": fake_popup}), \
+                mock.patch.object(off_work, "_create_task", return_value=True) as create, \
+                mock.patch.object(off_work, "_load_task_names", return_value=[]), \
+                mock.patch.object(off_work, "_save_task_names") as save:
+            off_work._fire("main", "18:30")
+
+        create.assert_called_once()
+        name, when, command = create.call_args[0]
+        self.assertTrue(name.startswith("OffWorkReminder_Snooze_"))
+        self.assertIn("--fire main", command)
+        self.assertIn("--clock 18:30", command)
+        save.assert_called_once()

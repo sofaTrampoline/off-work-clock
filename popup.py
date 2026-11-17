@@ -80,7 +80,9 @@ def _foreground_hwnd():
         return None
     import ctypes
 
-    return ctypes.windll.user32.GetForegroundWindow()
+    user32 = ctypes.windll.user32
+    user32.GetForegroundWindow.restype = ctypes.c_void_p
+    return user32.GetForegroundWindow() or None
 
 
 def _restore_foreground(hwnd) -> None:
@@ -199,9 +201,6 @@ def _build_main(root, canvas, scale, w, h, clock_text):
     _Button(canvas, pad + int(116 * scale), int(136 * scale), int(206 * scale),
             int(38 * scale), "10 分钟后再提醒", snooze, primary=False, scale=scale)
 
-    root.bind("<Alt-F4>", lambda e: ack())
-    root.protocol("WM_DELETE_WINDOW", ack)
-
 
 def _build_warn(root, canvas, scale, w, h, clock_text):
     pad = int(20 * scale)
@@ -219,8 +218,6 @@ def _build_warn(root, canvas, scale, w, h, clock_text):
         root.destroy()
 
     canvas.bind("<Button-1>", close)
-    root.bind("<Alt-F4>", close)
-    root.protocol("WM_DELETE_WINDOW", close)
     root.after(WARN_AUTOCLOSE_MS, close)
 
 
