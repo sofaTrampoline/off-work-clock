@@ -1,5 +1,6 @@
 """下班时间计算器 — 打卡时间 + 8h45m = 下班时间，大字体显示 + 下班提醒通知"""
 
+import csv
 import json
 import sys
 import subprocess
@@ -143,6 +144,7 @@ def reminder_times(
 
 STATE_PATH = Path(__file__).resolve().parent / ".state.json"
 LOG_PATH = Path(tempfile.gettempdir()) / "off_work.log"
+TASK_PREFIX = "OffWorkReminder"
 
 
 def _log(msg: str) -> None:
@@ -194,6 +196,44 @@ def _delete_tasks(names: list[str]) -> None:
             capture_output=True,
             text=True,
         )
+
+
+def _parse_task_names(csv_text: str) -> list[str]:
+    """从 schtasks /query /fo csv 的输出里挑出本程序创建的任务名。"""
+    names: list[str] = []
+    for line in csv_text.splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        try:
+            field = next(csv.reader([line]))[0]
+        except (StopIteration, csv.Error):
+            continue
+        name = field.lstrip("\\")
+        if name.startswith(TASK_PREFIX):
+            names.append(name)
+    return names
+
+
+def _query_task_names() -> list[str]:
+    """列出当前所有本程序创建的计划任务，防止历史残留越积越多。"""
+    if sys.platform != "win32":
+        return []
+    try:
+        result = subprocess.run(
+            ["schtasks", "/query", "/fo", "csv", "/nh"],
+            capture_output=True,
+            text=True,
+            encoding="gbk",
+            errors="replace",
+        )
+    except OSError as e:
+        _log(f"schtasks query failed: {e!r}")
+        return []
+    if result.returncode != 0:
+        _log(f"schtasks query failed: {result.returncode}")
+        return []
+    return _parse_task_names(result.stdout)
 
 
 def _short_date(dt: datetime) -> str:
@@ -253,7 +293,10 @@ def schedule_notification(clock_out: datetime) -> bool:
         print("⚠️  下班时间已过，不设置提醒。")
         return False
 
-    _delete_tasks(_load_task_names())
+    # state.json 只记得最后一次排程，重跑会覆盖记录、漏删旧任务；
+    # 直接扫一遍计划任务，避免残留堆积导致同一时段重复弹窗。
+    stale = set(_load_task_names()) | set(_query_task_names())
+    _delete_tasks(sorted(stale))
     names: list[str] = []
     ok = True
 

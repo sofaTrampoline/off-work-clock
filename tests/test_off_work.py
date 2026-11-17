@@ -69,6 +69,42 @@ class StateFileTest(unittest.TestCase):
             self.assertEqual(off_work._load_task_names(Path(d) / "nope.json"), [])
 
 
+class QueryTaskNamesTest(unittest.TestCase):
+    def test_parse_keeps_only_own_tasks_and_strips_backslash(self):
+        sample = (
+            '"\\OffWorkReminder_1752","2026/11/17 17:52:00","就绪"\r\n'
+            '"\\OffWorkReminder_Warn_1747","2026/11/17 17:47:00","就绪"\r\n'
+            '"\\StartVDriveSvr",N/A,"已禁用"\r\n'
+            "\r\n"
+        )
+        self.assertEqual(
+            off_work._parse_task_names(sample),
+            ["OffWorkReminder_1752", "OffWorkReminder_Warn_1747"],
+        )
+
+    def test_parse_skips_blank_and_malformed_lines(self):
+        self.assertEqual(off_work._parse_task_names("\n  \nbroken\n"), [])
+
+    def test_schedule_deletes_stale_tasks_from_query(self):
+        import contextlib
+        import io
+        from unittest import mock
+
+        stale = ["OffWorkReminder_1700", "OffWorkReminder_Warn_1650"]
+        with mock.patch.object(off_work, "_load_task_names", return_value=[]), \
+                mock.patch.object(off_work, "_query_task_names", return_value=stale), \
+                mock.patch.object(off_work, "_delete_tasks") as delete, \
+                mock.patch.object(off_work, "_create_task", return_value=True), \
+                mock.patch.object(off_work, "_save_task_names"), \
+                mock.patch("off_work.datetime") as dt:
+            dt.now.return_value = datetime(2026, 11, 17, 9, 0)
+            with contextlib.redirect_stdout(io.StringIO()):
+                off_work.schedule_notification(datetime(2026, 11, 17, 18, 30))
+
+        delete.assert_called_once()
+        self.assertEqual(sorted(delete.call_args[0][0]), stale)
+
+
 class FireArgsTest(unittest.TestCase):
     def test_parse_kind_and_clock(self):
         kind, clock = off_work.parse_fire_args(
