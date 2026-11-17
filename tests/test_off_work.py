@@ -33,12 +33,19 @@ class ReminderTimesTest(unittest.TestCase):
         self.assertIsNone(warn)
         self.assertEqual(main, datetime(2026, 11, 17, 18, 30))
 
-    def test_rounds_up_to_next_minute(self):
+    def test_triggers_on_target_minute(self):
         now = datetime(2026, 11, 17, 9, 0)
         clock_out = datetime(2026, 11, 17, 18, 30, 45)
         warn, main = off_work.reminder_times(clock_out, now)
+        self.assertEqual(main, datetime(2026, 11, 17, 18, 30))
+        self.assertEqual(warn, datetime(2026, 11, 17, 18, 20))
+
+    def test_trigger_falls_back_to_next_minute_when_minute_passed(self):
+        now = datetime(2026, 11, 17, 18, 30, 10)
+        clock_out = datetime(2026, 11, 17, 18, 30, 45)
+        warn, main = off_work.reminder_times(clock_out, now)
         self.assertEqual(main, datetime(2026, 11, 17, 18, 31))
-        self.assertEqual(warn, datetime(2026, 11, 17, 18, 21))
+        self.assertIsNone(warn)
 
 
 class TaskCommandTest(unittest.TestCase):
@@ -109,6 +116,34 @@ class QueryTaskNamesTest(unittest.TestCase):
             self.assertTrue(cmd.endswith("--clock 18:30:37"), cmd)
 
 
+class PopupTargetTest(unittest.TestCase):
+    def test_main_target_is_clock_time(self):
+        now = datetime(2026, 11, 17, 9, 0)
+        self.assertEqual(
+            off_work._popup_target("main", "17:51:21", now),
+            datetime(2026, 11, 17, 17, 51, 21),
+        )
+
+    def test_warn_target_is_ten_minutes_earlier(self):
+        now = datetime(2026, 11, 17, 9, 0)
+        self.assertEqual(
+            off_work._popup_target("warn", "17:51:21", now),
+            datetime(2026, 11, 17, 17, 41, 21),
+        )
+
+    def test_clock_text_without_seconds(self):
+        now = datetime(2026, 11, 17, 9, 0)
+        self.assertEqual(
+            off_work._popup_target("main", "17:52", now),
+            datetime(2026, 11, 17, 17, 52),
+        )
+
+    def test_invalid_clock_text_returns_none(self):
+        now = datetime(2026, 11, 17, 9, 0)
+        self.assertIsNone(off_work._popup_target("main", "", now))
+        self.assertIsNone(off_work._popup_target("main", "oops", now))
+
+
 class FireArgsTest(unittest.TestCase):
     def test_parse_kind_and_clock(self):
         kind, clock = off_work.parse_fire_args(
@@ -171,8 +206,12 @@ class FireSnoozeTest(unittest.TestCase):
         with mock.patch.dict(sys.modules, {"popup": fake_popup}), \
                 mock.patch.object(off_work, "_create_task", return_value=True) as create, \
                 mock.patch.object(off_work, "_load_task_names", return_value=[]), \
+                mock.patch.object(off_work, "_wait_until") as wait, \
                 mock.patch.object(off_work, "_save_task_names") as save:
             off_work._fire("main", "18:30")
+
+        self.assertEqual(wait.call_count, 1)
+        self.assertEqual(wait.call_args[0][0].strftime("%H:%M"), "18:30")
 
         create.assert_called_once()
         name, when, command = create.call_args[0]

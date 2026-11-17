@@ -5,6 +5,7 @@ import json
 import sys
 import subprocess
 import tempfile
+import time
 from datetime import datetime, timedelta
 from pathlib import Path
 
@@ -133,13 +134,23 @@ def ceil_minute(dt: datetime) -> datetime:
     return dt.replace(second=0, microsecond=0)
 
 
+def _trigger_time(target: datetime, now: datetime) -> datetime | None:
+    """任务触发时刻：取目标的整分钟（向下），已错过则退化为向上取整。"""
+    t = target.replace(second=0, microsecond=0)
+    if t <= now:
+        t = ceil_minute(target)
+    return t if t > now else None
+
+
 def reminder_times(
     clock_out: datetime, now: datetime
-) -> tuple[datetime | None, datetime]:
-    """返回 (提前提醒时间或 None, 下班提醒时间)。提前提醒 = 下班前 10 分钟。"""
-    main_time = ceil_minute(clock_out)
-    warn_time = main_time - timedelta(minutes=10)
-    return (warn_time if warn_time > now else None), main_time
+) -> tuple[datetime | None, datetime | None]:
+    """返回 (提前提醒触发时间或 None, 下班提醒触发时间)。提前提醒 = 下班前 10 分钟。
+
+    触发只能到整分钟；精确到秒的显示由 _fire 里的等待补足。
+    """
+    warn_target = clock_out - timedelta(minutes=10)
+    return _trigger_time(warn_target, now), _trigger_time(clock_out, now)
 
 
 STATE_PATH = Path(__file__).resolve().parent / ".state.json"
@@ -289,7 +300,7 @@ def schedule_notification(clock_out: datetime) -> bool:
     now = datetime.now()
     warn_time, main_time = reminder_times(clock_out, now)
 
-    if main_time <= now:
+    if main_time is None:
         print("⚠️  下班时间已过，不设置提醒。")
         return False
 
@@ -339,6 +350,43 @@ def parse_fire_args(argv: list[str]) -> tuple[str, str]:
     return kind, clock_text
 
 
+def _parse_clock_text(text: str) -> tuple[int, int, int] | None:
+    parts = text.split(":")
+    if len(parts) not in (2, 3):
+        return None
+    try:
+        nums = [int(p) for p in parts]
+    except ValueError:
+        return None
+    if len(nums) == 2:
+        nums.append(0)
+    h, m, s = nums
+    if not (0 <= h < 24 and 0 <= m < 60 and 0 <= s < 60):
+        return None
+    return h, m, s
+
+
+def _popup_target(kind: str, clock_text: str, now: datetime) -> datetime | None:
+    """卡片出现的精确时刻：下班时间本身；提前提醒再往前 10 分钟。"""
+    parsed = _parse_clock_text(clock_text)
+    if parsed is None:
+        return None
+    h, m, s = parsed
+    target = now.replace(hour=h, minute=m, second=s, microsecond=0)
+    if kind == "warn":
+        target -= timedelta(minutes=10)
+    return target
+
+
+def _wait_until(target: datetime) -> None:
+    """计划任务只能按整分钟触发，这里补足到精确的秒。"""
+    while True:
+        remaining = (target - datetime.now()).total_seconds()
+        if remaining <= 0:
+            return
+        time.sleep(min(remaining, 1.0))
+
+
 def _balloon_ps(title: str, body: str) -> str:
     return (
         "Add-Type -AssemblyName System.Windows.Forms; "
@@ -369,6 +417,10 @@ def _show_balloon_now(title: str, body: str) -> None:
 
 
 def _fire(kind: str, clock_text: str) -> None:
+    target = _popup_target(kind, clock_text, datetime.now())
+    if target is not None:
+        _wait_until(target)
+
     try:
         import popup
 

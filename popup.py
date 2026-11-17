@@ -16,7 +16,7 @@ BTN_BG = "#33334D"
 BTN_HOVER = "#40405F"
 CHROMA = "#FF00FF"
 
-WARN_AUTOCLOSE_MS = 30_000
+AUTOCLOSE_MS = 30_000  # 两种卡片都在 30 秒后自动关闭
 MARGIN = 24
 MAIN_SIZE = (380, 200)
 WARN_SIZE = MAIN_SIZE  # 提前提醒也走大卡片，只是不放按钮
@@ -207,6 +207,7 @@ def _build_main(root, canvas, scale, w, h, clock_text):
             "知道了", ack, primary=True, scale=scale)
     _Button(canvas, pad + int(116 * scale), int(136 * scale), int(206 * scale),
             int(38 * scale), "10 分钟后再提醒", snooze, primary=False, scale=scale)
+    root.after(AUTOCLOSE_MS, ack)
 
 
 def _build_warn(root, canvas, scale, w, h, clock_text):
@@ -225,7 +226,7 @@ def _build_warn(root, canvas, scale, w, h, clock_text):
         _finish(root, "ack")
 
     canvas.bind("<Button-1>", close)
-    root.after(WARN_AUTOCLOSE_MS, close)
+    root.after(AUTOCLOSE_MS, close)
 
 
 def run_popup(kind: str = "main", clock_text: str = "") -> str:

@@ -11,8 +11,8 @@ class PopupContractTest(unittest.TestCase):
     def test_warn_uses_main_card_size(self):
         self.assertEqual(popup.WARN_SIZE, popup.MAIN_SIZE)
 
-    def test_warn_autoclose_is_thirty_seconds(self):
-        self.assertEqual(popup.WARN_AUTOCLOSE_MS, 30_000)
+    def test_autoclose_is_thirty_seconds(self):
+        self.assertEqual(popup.AUTOCLOSE_MS, 30_000)
 
     def test_accent_colors_defined(self):
         self.assertTrue(popup.ACCENT.startswith("#"))
