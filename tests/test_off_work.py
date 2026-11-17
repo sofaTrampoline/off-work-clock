@@ -39,3 +39,31 @@ class ReminderTimesTest(unittest.TestCase):
         warn, main = off_work.reminder_times(clock_out, now)
         self.assertEqual(main, datetime(2026, 11, 17, 18, 31))
         self.assertEqual(warn, datetime(2026, 11, 17, 18, 21))
+
+
+class TaskCommandTest(unittest.TestCase):
+    def test_command_has_fire_and_clock(self):
+        cmd = off_work._task_command("main", "18:30")
+        self.assertIn("--fire main", cmd)
+        self.assertIn("--clock 18:30", cmd)
+        self.assertIn("off_work.py", cmd)
+
+    def test_command_uses_pythonw_when_available(self):
+        cmd = off_work._task_command("warn", "18:20")
+        self.assertIn(off_work._pythonw(), cmd)
+
+
+class StateFileTest(unittest.TestCase):
+    def test_roundtrip(self):
+        import tempfile
+
+        with tempfile.TemporaryDirectory() as d:
+            p = Path(d) / ".state.json"
+            off_work._save_task_names(["a", "b"], p)
+            self.assertEqual(off_work._load_task_names(p), ["a", "b"])
+
+    def test_missing_file_returns_empty(self):
+        import tempfile
+
+        with tempfile.TemporaryDirectory() as d:
+            self.assertEqual(off_work._load_task_names(Path(d) / "nope.json"), [])

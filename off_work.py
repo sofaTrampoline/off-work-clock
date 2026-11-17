@@ -1,5 +1,6 @@
 """下班时间计算器 — 打卡时间 + 8h45m = 下班时间，大字体显示 + 下班提醒通知"""
 
+import json
 import sys
 import subprocess
 import tempfile
@@ -140,35 +141,68 @@ def reminder_times(
     return (warn_time if warn_time > now else None), main_time
 
 
-def _create_task(task_name: str, trigger_time: datetime, title: str, body: str) -> bool:
-    """创建单次计划任务，触发时弹气泡通知。"""
+STATE_PATH = Path(__file__).resolve().parent / ".state.json"
+LOG_PATH = Path(tempfile.gettempdir()) / "off_work.log"
 
-    # PowerShell 气泡通知脚本
-    ps_code = (
-        "Add-Type -AssemblyName System.Windows.Forms; "
-        "Add-Type -AssemblyName System.Drawing; "
-        "$b = New-Object System.Windows.Forms.NotifyIcon; "
-        "$b.Icon = [System.Drawing.SystemIcons]::Information; "
-        "$b.BalloonTipIcon = 'Info'; "
-        f'$b.BalloonTipTitle = "{title}"; '
-        f'$b.BalloonTipText = "{body}"; '
-        "$b.Visible = $true; "
-        "$b.ShowBalloonTip(0); "
-        "Start-Sleep -Seconds 5; "
-        "$b.Dispose()"
-    )
-    script_path = Path(tempfile.gettempdir()) / f"_offwork_{trigger_time.strftime('%H%M%S')}.ps1"
-    script_path.write_text(ps_code, encoding="utf-8-sig")
-    script_path_str = str(script_path).replace("\\", "\\\\")
 
+def _log(msg: str) -> None:
+    try:
+        with LOG_PATH.open("a", encoding="utf-8") as f:
+            f.write(f"{datetime.now():%Y-%m-%d %H:%M:%S} {msg}\n")
+    except OSError:
+        pass
+
+
+def _pythonw() -> str:
+    exe = Path(sys.executable)
+    candidate = exe.with_name("pythonw.exe")
+    return str(candidate if candidate.exists() else exe)
+
+
+def _task_command(kind: str, clock_text: str) -> str:
+    script = Path(__file__).resolve()
+    return f'"{_pythonw()}" "{script}" --fire {kind} --clock {clock_text}'
+
+
+def _load_task_names(state_path: Path = STATE_PATH) -> list[str]:
+    try:
+        data = json.loads(state_path.read_text(encoding="utf-8"))
+        return [str(x) for x in data.get("tasks", [])]
+    except (OSError, ValueError):
+        return []
+
+
+def _save_task_names(names: list[str], state_path: Path = STATE_PATH) -> None:
+    try:
+        state_path.write_text(
+            json.dumps({"tasks": names}, ensure_ascii=False, indent=2),
+            encoding="utf-8",
+        )
+    except OSError as e:
+        _log(f"save state failed: {e!r}")
+
+
+def _delete_tasks(names: list[str]) -> None:
+    for name in names:
+        subprocess.run(
+            ["schtasks", "/delete", "/tn", name, "/f"],
+            capture_output=True,
+            text=True,
+        )
+
+
+def _create_task(task_name: str, trigger_time: datetime, command: str) -> bool:
     cmd = [
         "schtasks", "/create", "/f",
         "/sc", "once",
         "/tn", task_name,
-        "/tr", f'powershell -WindowStyle Hidden -ExecutionPolicy Bypass -File "{script_path_str}"',
+        "/tr", command,
         "/st", trigger_time.strftime("%H:%M"),
+        "/it",
     ]
     result = subprocess.run(cmd, capture_output=True, text=True)
+    if result.returncode != 0:
+        _log(f"schtasks failed: {result.returncode} {result.stdout} {result.stderr}")
     return result.returncode == 0
 
 
@@ -181,16 +215,14 @@ def schedule_notification(clock_out: datetime) -> bool:
         print("⚠️  下班时间已过，不设置提醒。")
         return False
 
+    _delete_tasks(_load_task_names())
+    names: list[str] = []
     ok = True
 
-    # ── 提前 10 分钟提醒 ──
     if warn_time:
         warn_task_name = f"OffWorkReminder_Warn_{warn_time.strftime('%H%M')}"
-        warn_body = (
-            f"还有 10 分钟下班！收拾东西准备走啦～`r`n`r`n"
-            f"下班打卡: {clock_out.strftime('%H:%M')}"
-        )
-        if _create_task(warn_task_name, warn_time, "下班提醒", warn_body):
+        if _create_task(warn_task_name, warn_time, _task_command("warn", clock_out.strftime("%H:%M"))):
+            names.append(warn_task_name)
             remaining = warn_time - now
             h, remainder = divmod(int(remaining.total_seconds()), 3600)
             m, _ = divmod(remainder, 60)
@@ -200,13 +232,9 @@ def schedule_notification(clock_out: datetime) -> bool:
     else:
         print("⚠️  提前 10 分钟提醒时间已过，跳过。")
 
-    # ── 下班准时提醒 ──
     main_task_name = f"OffWorkReminder_{main_time.strftime('%H%M')}"
-    main_body = (
-        f"到下班时间啦！辛苦一天，该走了！`r`n`r`n"
-        f"打卡: {clock_out.strftime('%H:%M')}"
-    )
-    if _create_task(main_task_name, main_time, "下班提醒", main_body):
+    if _create_task(main_task_name, main_time, _task_command("main", clock_out.strftime("%H:%M"))):
+        names.append(main_task_name)
         remaining = main_time - now
         h, remainder = divmod(int(remaining.total_seconds()), 3600)
         m, _ = divmod(remainder, 60)
@@ -215,6 +243,7 @@ def schedule_notification(clock_out: datetime) -> bool:
         ok = False
         print("❌ 设置下班提醒失败")
 
+    _save_task_names(names)
     return ok
 
 
