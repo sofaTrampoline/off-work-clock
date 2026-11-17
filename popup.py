@@ -51,6 +51,30 @@ def _work_area(root) -> tuple[int, int, int, int]:
     return 0, 0, root.winfo_screenwidth(), root.winfo_screenheight()
 
 
+def _apply_no_activate(root) -> None:
+    """给窗口加 WS_EX_NOACTIVATE，避免出现时抢走前台焦点。"""
+    if sys.platform != "win32":
+        return
+    import ctypes
+
+    GWL_EXSTYLE = -20
+    WS_EX_NOACTIVATE = 0x08000000
+    WS_EX_TOOLWINDOW = 0x00000080
+
+    user32 = ctypes.windll.user32
+    user32.GetParent.restype = ctypes.c_void_p
+    user32.GetParent.argtypes = [ctypes.c_void_p]
+    user32.GetWindowLongW.restype = ctypes.c_long
+    user32.GetWindowLongW.argtypes = [ctypes.c_void_p, ctypes.c_int]
+    user32.SetWindowLongW.restype = ctypes.c_long
+    user32.SetWindowLongW.argtypes = [ctypes.c_void_p, ctypes.c_int, ctypes.c_long]
+
+    inner = ctypes.c_void_p(root.winfo_id())
+    hwnd = user32.GetParent(inner) or inner
+    style = user32.GetWindowLongW(hwnd, GWL_EXSTYLE)
+    user32.SetWindowLongW(hwnd, GWL_EXSTYLE, style | WS_EX_NOACTIVATE | WS_EX_TOOLWINDOW)
+
+
 def _round_rect(canvas, x1, y1, x2, y2, radius, **kwargs):
     pts = [
         x1 + radius, y1,
@@ -123,6 +147,8 @@ def _make_window(kind: str):
         canvas, 1, 1, w - 1, h - 1, int(18 * scale),
         fill=CARD_BG, outline=CARD_BORDER, width=1,
     )
+    root.update_idletasks()
+    _apply_no_activate(root)
     root.deiconify()
     root.lift()
     return root, canvas, scale, w, h
